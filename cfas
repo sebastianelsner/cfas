@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 """
 Count files and sizes on linux faster than anyone else.
 
@@ -21,11 +21,10 @@ Main features:
 Author: Rune Moellegaard Friborg <runef@birc.au.dk>
 """
 
-
 import getopt
 import sys
 import multiprocessing
-import threading, time, Queue
+import threading, time, queue
 import os
 import os.path
 import stat
@@ -61,7 +60,7 @@ def supported_units():
   """Returns a list of valid unit suffixes.
 
   Unit suffixes are case-insensitive."""
-  return units.keys()
+  return list(units.keys())
 
 def from_human(value, default_unit='M'):
   """Convert a file size in human format to bytes.
@@ -86,7 +85,7 @@ def from_human(value, default_unit='M'):
     raise ValueError('value must be a positive number followed by a valid unit')
 
   normalized_unit = unit.upper()
-  if normalized_unit not in units.iterkeys():
+  if normalized_unit not in units:
     raise ValueError('unit is invalid')
   return int(float(number) * units[normalized_unit])
 
@@ -106,12 +105,11 @@ def to_human(value):
   if not isinstance(value, numbers.Number):
     raise ValueError('first argument must be a positive integer')
   if not value >= 0:
-    raise ValueError('first argument most be a positive integer')
+    raise ValueError('first argument must be a positive integer')
 
   unit, multiplier = 'B', 1.0
-  for curr_unit, curr_multiplier in units.iteritems():
-    if value > curr_multiplier and \
-       value < curr_multiplier * 1024:
+  for curr_unit, curr_multiplier in sorted(units.items(), key=lambda x: -x[1]):
+    if value > curr_multiplier:
       unit, multiplier = curr_unit, curr_multiplier
       break
 
@@ -148,7 +146,7 @@ class c_dirent(Structure):
       ('d_type', c_byte), # type of file; not supported by all file system types
       ('d_name', c_char * 4096) # filename
     ]
-    
+
 c_dirent_p = POINTER(c_dirent)
 
 c_lib = CDLL(find_library("c"))
@@ -156,7 +154,6 @@ opendir = c_lib.opendir
 opendir.argtypes = [c_char_p]
 opendir.restype = c_dir_p
 
-# FIXME Should probably use readdir_r here
 readdir = c_lib.readdir
 readdir.argtypes = [c_dir_p]
 readdir.restype = c_dirent_p
@@ -190,7 +187,7 @@ uidDict = {}
 for p in pwd.getpwall():
   uidDict[p.pw_uid] = p.pw_name
 
-# Unknown uids 
+# Unknown uids
 uidDict[None] = 'Unknown'
 
 ##############################################################
@@ -220,7 +217,7 @@ class WorkerShutdownMsg():
   def __init__(self):
     pass
 
-# Send on CountWorkerQueue
+# Sent on CountWorkerQueue
 class WorkMsg():
   def __init__(self, path, name, parent_inode, inode):
     self.path = path
@@ -364,7 +361,7 @@ class countWorkerProcess(multiprocessing.Process):
         
         self.count(msg.name, msg.parent_inode, msg.inode)
 
-      except OSError, e:
+      except OSError as e:
         # Send state
         self.qState.put(DirStateMsg(0, self.processindex))
 
@@ -388,7 +385,7 @@ class countWorkerProcess(multiprocessing.Process):
 
     cwd = os.getcwd()
     # Thread Synchronised Queue
-    q = Queue.Queue()
+    q = queue.Queue()
 
     # Get list of all files and dirs
     dirs = []  
@@ -418,7 +415,7 @@ class countWorkerProcess(multiprocessing.Process):
     c = 2
     if l > 1000:
       split = int(l/c)
-      for i in xrange(c-1):
+      for i in range(c-1):
         t = statFileWorkerThread(cwd, q, files[i*split:(i+1)*split])
         t.start()
       t = statFileWorkerThread(cwd, q, files[(c-1)*split:])
@@ -427,7 +424,7 @@ class countWorkerProcess(multiprocessing.Process):
       groupstat(cwd, q, files)
 
     # Collect stat info on all files (non-dirs)
-    for i in xrange(len(files)):
+    for i in range(len(files)):
       name, st = q.get()
 
       # Extra check to enable support for filesystems with no dirent.d_type
@@ -477,7 +474,7 @@ class countWorkerProcess(multiprocessing.Process):
       groupstat(cwd, q, dirs)
 
     # Collect stat info on all dirs
-    for i in xrange(len(dirs)):
+    for i in range(len(dirs)):
       name, st = q.get()
 
       # Pattern mathing for including folders
@@ -518,7 +515,7 @@ def main(args):
   t.start()
 
   # Start multiprocess workers
-  for i in xrange(args.workers):
+  for i in range(args.workers):
     p = countWorkerProcess(args, CountWorkerQueue, CountResultQueue, StateQueue, i)
     p.start()
 
@@ -544,9 +541,9 @@ def main(args):
       else:        
         i += 1
 
-  except OSError, e:
+  except OSError as e:
     # Handle error
-    sys.stderr.write(e.strerror + ": '" + e.filename + "'\n")
+    sys.stderr.write(str(e) + ": '" + e.filename + "'\n")
     sys.exit(1)
 
   # Submit size of dirlist
@@ -589,9 +586,9 @@ def main(args):
   # Output header
   if not args.quiet:
     if args.user:
-      print template_user.format('User', 'Files', 'Size', 'Path')
+      print(template_user.format('User', 'Files', 'Size', 'Path'))
     else:
-      print template.format('Files', 'Size', 'Path')
+      print(template.format('Files', 'Size', 'Path'))
 
 
   # Perform depth-first collection
@@ -663,18 +660,18 @@ def main(args):
         # Split output on user
         for uid in collect_file_count:
           if collect_file_count[uid] > args.file_limit or collect_file_size[uid] > args.size_limit:
-            print template_user.format(uidDict.setdefault(uid, 'unknown('+str(uid)+')'),
+            print(template_user.format(uidDict.setdefault(uid, 'unknown('+str(uid)+')'),
                                        collect_file_count[uid], 
                                        (to_human(collect_file_size[uid]) if args.human_readable else collect_file_size[uid]),
-                                       "/".join(p))
+                                       "/".join(p)))
       else:
         if sum_file_count >= args.file_limit or sum_file_size >= args.size_limit:
-          print template.format(sum_file_count, 
+          print(template.format(sum_file_count, 
                                 (to_human(sum_file_size) if args.human_readable else sum_file_size),
-                                "/".join(p))
+                                "/".join(p)))
   try:
     #for realpath, dirname, inode in root_dirs:
-    #  collect(ALL[inode]
+    #  collect(ALL[inode])
 
     for realpath, dirname, inode in root_dirs:
       root_entry = ALL[inode]
@@ -710,7 +707,7 @@ Optional arguments:
 
   --exclude-subdirs     all directories are counted separately
 
-  --quiet, -q           do not output header (usefull for output parsing)
+  --quiet, -q           do not output header (useful for output parsing)
   --user, -u            add user column and split counts between users
 
   --human-readable, -h  output numbers in human readable format
@@ -744,9 +741,9 @@ if __name__ == '__main__':
 
   try:
     opts, dirs = getopt.getopt(sys.argv[1:], "d:n:k:qhup:s:w:", ["help", "directory=", "max-depth=", "file-limit=", "size-limit=", "exclude=", "include=", "exclude-subdirs", "quiet", "human-readable", "user", "progress=", "status=", "workers="])
-  except getopt.GetoptError, err:
+  except getopt.GetoptError as err:
     # print help information and exit:
-    print str(err) # will print something like "option -a not recognized"
+    print(str(err)) # will print something like "option -a not recognized"
     sys.exit(2)
 
   args = ArgContainer()
@@ -767,17 +764,17 @@ if __name__ == '__main__':
     elif o == "--exclude":
       try:
         exclude_matcher = re.compile(a + "$")
-      except Exception, e:
+      except Exception as e:
         sys.stderr.write("Could not parse --exclude pattern '" + str(a) + "'\n")
-        sys.stderr.write("Reason: " + e.message + "\n")
+        sys.stderr.write("Reason: " + e.args[0] + "\n")
         sys.exit(1)
       args.exclude = exclude_matcher
     elif o == "--include":
       try:
         include_matcher = re.compile(a + "$")
-      except Exception, e:
+      except Exception as e:
         sys.stderr.write("Could not parse --include pattern '" + str(a) + "'\n")
-        sys.stderr.write("Reason: " + e.message + "\n")
+        sys.stderr.write("Reason: " + e.args[0] + "\n")
         sys.exit(1)
       args.include = include_matcher
     elif o == "--exclude-subdirs":
@@ -817,4 +814,3 @@ if __name__ == '__main__':
     main(args)
   except KeyboardInterrupt:
     sys.exit(1)
-
